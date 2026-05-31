@@ -8,6 +8,7 @@ export const generateToken = (user) => {
       last_name: user.last_name,
       email: user.email,
       role: user.role,
+      cart: user.cart,
     };
     const token = jwt.sign({ user: userToken }, process.env.JWT_SECRET, {
       expiresIn: "1d", // 1 día

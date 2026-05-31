@@ -13,9 +13,9 @@ const prodsRouter = Router();
 
 prodsRouter.get("/", getProducts);
 prodsRouter.get("/:id", getProduct);
-prodsRouter.post("/", postProduct);
-prodsRouter.post("/PwI", postProductWImage);
-prodsRouter.put("/:id", putProduct);
-prodsRouter.delete("/:id", deleteProduct);
+prodsRouter.post("/", passportError("jwt"), authorization("admin"), postProduct);
+prodsRouter.post("/PwI", passportError("jwt"), authorization("admin"), postProductWImage);
+prodsRouter.put("/:id", passportError("jwt"), authorization("admin"), putProduct);
+prodsRouter.delete("/:id", passportError("jwt"), authorization("admin"), deleteProduct);
 
 export default prodsRouter;

@@ -1,3 +1,4 @@
+import cartRouter from "../Routes/Cart.Routes.js";
 import { CartModel } from "../models/cart.models.js";
 import { productModel } from "../models/products.models.js";
 
@@ -23,6 +24,7 @@ export const getCart = async (req, res) => {
     res.status(500).send(error);
   }
 };
+
 export const postCart = async (req, res) => {
   const { cid, pid } = req.params;
   const { quantity } = req.body;
@@ -71,6 +73,59 @@ export const postCart = async (req, res) => {
       return res.status(404).send({
         status: "Error al agregar un producto a este carrito",
         payload: "Carrito no encontrado",
+      });
+    }
+  } catch (error) {
+    return res.status(500).send({
+      status: "Error al agregar un producto a este carrito",
+      payload: error.message,
+    });
+  }
+};
+export const noIdPostCart = async (req, res) => {
+  const { pid } = req.params;
+  const { quantity } = req.body;
+
+  try {
+    // Crear un nuevo carrito sin el cart id
+    const cart = await CartModel.create({ products: [] });
+
+    // Buscar el producto por su ID
+    const prod = await productModel.findById(pid);
+
+    if (prod) {
+      const indice = cart.products.findIndex(
+        (product) => product._id.toString() === pid
+      );
+
+      if (indice !== -1) {
+        // Incrementar la cantidad según el cuerpo de la solicitud o por defecto 1
+        const prodIndex = cart.products[indice];
+        prodIndex.quantity += quantity || 1;
+      } else {
+        // Agregar un nuevo producto al carrito con la cantidad según el cuerpo de la solicitud o por defecto 1
+        cart.products.push({ _id: prod._id, quantity: quantity || 1 });
+      }
+
+      // Recalcular el total
+      const total = cart.products.reduce((acc, product) => {
+        const productTotal = product.quantity * prod.price;
+        return acc + productTotal;
+      }, 0);
+
+      // Actualizar el total en el carrito
+      cart.total = total;
+      await cart.save();
+
+      return res.status(200).send({
+        status: "success",
+        payload: `Producto agregado al carrito`,
+        cart: cart,
+      });
+    } else {
+      return res.status(404).send({
+        status: "Error al agregar un producto a este carrito",
+        payload: "Producto no encontrado",
       });
     }
   } catch (error) {

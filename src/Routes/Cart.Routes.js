@@ -6,33 +6,20 @@ import {
   deleteCart,
   getCarts,
   removeProductFromCart,
+  noIdPostCart,
 } from "../controllers/cart.controllers.js";
 import { postCompra } from "../controllers/ticket.controllers.js";
-import { authorization, passportError } from "../utils/messagesError.js";
+import { passportError } from "../utils/messagesError.js";
 
 const cartRouter = Router();
 
-//Authorization: Limita quien puede acceder a cada ruta mediante passport
-
-cartRouter.get("/", getCarts);
-cartRouter.get("/:cid", getCart);
-cartRouter.post("/:cid/product/:pid/", postCart);
-cartRouter.put("/:cid/product/:pid", putCart);
-cartRouter.delete(
-  "/:cid/",
-
-  deleteCart
-);
-
-cartRouter.delete(
-  "/:cid/product/:pid",
-
-  removeProductFromCart
-);
-cartRouter.get(
-  "/:cid/purchase",
-
-  postCompra
-);
+cartRouter.get("/", passportError("jwt"), getCarts);
+cartRouter.get("/:cid", passportError("jwt"), getCart);
+cartRouter.post("/:cid/product/:pid/", passportError("jwt"), postCart);
+cartRouter.post("/product/:pid/", passportError("jwt"), noIdPostCart);
+cartRouter.put("/:cid/product/:pid", passportError("jwt"), putCart);
+cartRouter.delete("/:cid/", passportError("jwt"), deleteCart);
+cartRouter.delete("/:cid/product/:pid", passportError("jwt"), removeProductFromCart);
+cartRouter.get("/:cid/purchase", passportError("jwt"), postCompra);
 
 export default cartRouter;

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authorization, passportError } from "../utils/messagesError.js";
+import { passportError } from "../utils/messagesError.js";
 import {
   getAll,
   getById,
@@ -13,35 +13,20 @@ import {
   deleteInactiveUser,
 } from "../controllers/users.controllers.js";
 import { Docs, ProfPics, prodPics } from "../utils/multer.js";
-import "dotenv/config.js";
+
 const userRouter = Router();
 
-userRouter.get("/", getAll);
+userRouter.get("/", passportError("jwt"), getAll);
 userRouter.get("/:uid", passportError("jwt"), getById);
 userRouter.put("/:uid", passportError("jwt"), putById);
-userRouter.delete("/:uid", deleteByid);
+userRouter.delete("/:uid", passportError("jwt"), deleteByid);
+userRouter.delete("/delete/delete", passportError("jwt"), deleteInactiveUser);
 
-userRouter.delete("/delete/delete", deleteInactiveUser);
 userRouter.post("/password-recovery", pwRecovery);
 userRouter.post("/reset-password/:token", pwReset);
 
-userRouter.post(
-  "/docsUpload",
-
-  Docs.single("img"),
-  documentsUpload
-);
-userRouter.post(
-  "/:uid/profPicsUpload",
-
-  ProfPics.single("img"),
-  profilePicsUpload
-);
-userRouter.post(
-  "/prodPicsUpload",
-
-  prodPics.single("img"),
-  prodPicsUpload
-);
+userRouter.post("/docsUpload", passportError("jwt"), Docs.single("img"), documentsUpload);
+userRouter.post("/:uid/profPicsUpload", passportError("jwt"), ProfPics.single("img"), profilePicsUpload);
+userRouter.post("/prodPicsUpload", passportError("jwt"), prodPics.single("img"), prodPicsUpload);
 
 export default userRouter;

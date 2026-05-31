@@ -3,121 +3,65 @@ import { generateToken } from "../utils/jwt.js";
 
 export const login = async (req, res) => {
   try {
-    const userFound = await userModel.findOne({ email: req.body.email });
-    if (!userFound) {
-      return res.status(401).send({
-        payload: "Usuario no registrado, por favor regístrese",
-        status: "Error",
-      });
+    if (!req.user) {
+      return res.status(401).json({ status: "error", payload: "Credenciales incorrectas" });
     }
+    if (req.cookies.jwtCookie) {
+      return res.status(400).json({ status: "error", payload: "Ya ha iniciado sesión" });
+    }
+
+    const token = generateToken(req.user);
+    res.cookie("jwtCookie", token, {
+      maxAge: 86400000,
+      httpOnly: true,
+      sameSite: "Lax",
+    });
+
     const userData = {
       id: req.user._id,
       first_name: req.user.first_name,
       last_name: req.user.last_name,
       email: req.user.email,
       role: req.user.role,
+      cart: req.user.cart,
     };
-    if (!req.cookies.jwtCookie) {
-      const userCart = JSON.stringify(req.user.cart);
-      const userEmail = JSON.stringify(req.user.email);
-      const token = generateToken(req.user);
 
-      // Configuración de cookieOptions
-      const cookieOptions = {
-        maxAge: 86400000, // Duración de la cookie en milisegundos (1 día)
-        httpOnly: false,
-        sameSite: "None",
-      };
-      res.cookie("jwtCookie", token, cookieOptions);
-
-      const userId = req.user._id;
-      const userInfo = userData;
-
-      res.status(200).send({
-        userInfo,
-        userId,
-        userEmail,
-        token,
-        cookieOptions,
-        cart: userCart,
-        payload: "Sesión Iniciada",
-        status: "success",
-      });
-    } else {
-      res.status(504).send({
-        payload: "Usted ya ha iniciado sesión",
-        status: "Error",
-      });
-    }
+    return res.status(200).json({ status: "success", payload: "Sesión iniciada", userData, token });
   } catch (error) {
-    res.status(404).send("Error al iniciar sesión: ", error);
-    res
-      .status(500)
-      .send({ mensaje: `Error al iniciar sesión: ${error.message || error}` });
+    return res.status(500).json({ status: "error", payload: `Error al iniciar sesión: ${error.message}` });
   }
 };
 
 export const register = async (req, res) => {
   try {
     if (req.user) {
-      return res.status(200).send({
-        status: "success",
-        payload: "Usuario registrado exitosamente",
-      });
-    } else {
-      return res
-        .status(400)
-        .send({ status: "error", payload: "Error en el registro" });
+      return res.status(200).json({ status: "success", payload: "Usuario registrado exitosamente" });
     }
+    return res.status(400).json({ status: "error", payload: "Error en el registro" });
   } catch (error) {
-    res.status(404).send(error);
-    return res
-      .status(500)
-      .send({ status: "error", payload: "Hubo un error al registrar usuario" });
+    return res.status(500).json({ status: "error", payload: "Error al registrar usuario" });
   }
 };
 
 export const logout = async (req, res) => {
   try {
-    //Si la sesión se crea en la BDD
-    /* if (req.session.login) {
-    
-    } */
     req.session.destroy();
-    if (req.cookies) {
-      res.clearCookie("connect.sid");
-    }
-    if (req.cookies.jwtCookie) {
-      res.clearCookie("jwtCookie");
-
-      res
-        .status(200)
-        .send({ payload: "Usuario deslogeado", status: "success" });
-    } else {
-      res.status(404).send({
-        payload: "Debes iniciar sesion previamente!",
-        status: "Error",
-      });
-    }
+    res.clearCookie("connect.sid");
+    res.clearCookie("jwtCookie");
+    return res.status(200).json({ status: "success", payload: "Sesión cerrada" });
   } catch (error) {
-    res.status(500).send({ resultado: "Error al cerrar sesión", error: error });
+    return res.status(500).json({ status: "error", payload: "Error al cerrar sesión" });
   }
-};
-
-export const tryJwt = async (req, res) => {
-  res.send(req.user);
 };
 
 export const current = async (req, res) => {
   if (req.user) {
-    res.status(200).send(req.user);
-  } else {
-    res.status(404).send("No se ha encontrado req.user");
+    return res.status(200).json(req.user);
   }
+  return res.status(404).json({ status: "error", payload: "Usuario no encontrado" });
 };
 
 export const GithubLogin = async (req, res) => {
   req.session.user = req.user;
-  res.status(200).send({ mensaje: "Usuario logeado con Github" });
-  res.redirect("/");
+  return res.status(200).json({ status: "success", payload: "Usuario logeado con Github" });
 };

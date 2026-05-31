@@ -1,136 +1,85 @@
 import { productModel } from "../models/products.models.js";
 
-//Controllers= se hace metodo http + modelo
-
 export const getProducts = async (req, res) => {
   const { limit, page, filter, sort } = req.query;
 
-  const pag = page ? page : 1;
-  const lim = limit ? limit : 30;
-  const ord = sort == "asc" ? 1 : -1;
+  const pag = parseInt(page) || 1;
+  const lim = parseInt(limit) || 30;
+  const ord = sort === "asc" ? 1 : -1;
+  const query = filter ? { category: filter } : {};
+
   try {
-    const prods = await productModel.paginate(
-      { filter: filter },
-      { limit: lim, page: pag, sort: { price: ord } }
-    );
-    if (prods) {
-      return res.status(200).send({ status: "success", payload: prods });
-    }
-    res.status(404).send({ error: "Productos no encontrados" });
+    const prods = await productModel.paginate(query, {
+      limit: lim,
+      page: pag,
+      sort: { price: ord },
+    });
+    return res.status(200).json({ status: "success", payload: prods });
   } catch (error) {
-    res.status(500).send({ error: `Error en consultar productos ${error}` });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
+
 export const getProduct = async (req, res) => {
   const { id } = req.params;
-
   try {
     const prod = await productModel.findById(id);
-    if (prod) {
-      return res.status(200).send({ status: "success", payload: { prod } });
-    }
-    res.status(404).send({ error: "Producto no encontrado" });
+    if (!prod) return res.status(404).json({ status: "error", payload: "Producto no encontrado" });
+    return res.status(200).json({ status: "success", payload: prod });
   } catch (error) {
-    res.status(500).send({ error: `Error en consultar productos ${error}` });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
+
 export const postProduct = async (req, res) => {
-  const { title, description, code, price, stock, category, quantity } =
-    req.body;
-
+  const { title, description, code, price, stock, category, quantity } = req.body;
   try {
-    const prod = await productModel.create({
-      title,
-      description,
-      code,
-      price,
-      stock,
-      category,
-      quantity,
-    });
-
-    if (prod) {
-      return res.status(200).send({ status: "success", payload: { prod } });
-    }
-    res.status(400).send({ error: "error en crear producto" });
+    const prod = await productModel.create({ title, description, code, price, stock, category, quantity });
+    return res.status(201).json({ status: "success", payload: prod });
   } catch (error) {
-    if (error.code == 11000) {
-      res.status(404).send({ error: "Producto ya creado" });
-    } else {
-      res.status(500).send({ error: `Error en crear productos ${error}` });
+    if (error.code === 11000) {
+      return res.status(409).json({ status: "error", payload: "Ya existe un producto con ese código" });
     }
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
+
 export const postProductWImage = async (req, res) => {
-  const {
-    title,
-    description,
-    code,
-    price,
-    stock,
-    category,
-    quantity,
-    thumbnail,
-  } = req.body;
-
+  const { title, description, code, price, stock, category, quantity, thumbnail } = req.body;
   try {
-    const prod = await productModel.create({
-      title,
-      description,
-      code,
-      price,
-      stock,
-      category,
-      quantity,
-      thumbnail,
-    });
-    if (prod) {
-      return res.status(200).send({ status: "success", payload: { prod } });
-    }
-    res.status(400).send({ error: "error en crear producto" });
+    const prod = await productModel.create({ title, description, code, price, stock, category, quantity, thumbnail });
+    return res.status(201).json({ status: "success", payload: prod });
   } catch (error) {
-    if (error.code == 11000) {
-      res.status(400).send({ error: "Producto ya creado" });
+    if (error.code === 11000) {
+      return res.status(409).json({ status: "error", payload: "Ya existe un producto con ese código" });
     }
-    res.status(500).send({ error: `Error en crear productos ${error}` });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
+
 export const putProduct = async (req, res) => {
   const { id } = req.params;
   const { title, description, code, price, stock, category } = req.body;
   try {
-    const prod = await productModel.findByIdAndUpdate(id, {
-      title,
-      description,
-      code,
-      price,
-      stock,
-      category,
-    });
-    if (prod) {
-      return res.status(200).send({
-        status: "success",
-        payload: "El producto se ha actualizado correctamente",
-      });
-    }
-    res.status(404).send({ error: "Producto no encontrado" });
+    const prod = await productModel.findByIdAndUpdate(
+      id,
+      { title, description, code, price, stock, category },
+      { new: true }
+    );
+    if (!prod) return res.status(404).json({ status: "error", payload: "Producto no encontrado" });
+    return res.status(200).json({ status: "success", payload: prod });
   } catch (error) {
-    res.status(500).send({ error: `Error en actualizar productos ${error}` });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
 
 export const deleteProduct = async (req, res) => {
   const { id } = req.params;
-
   try {
     const prod = await productModel.findByIdAndDelete(id);
-    if (prod) {
-      return res
-        .status(200)
-        .send({ status: "success", payload: "El producto ha sido eliminado" });
-    }
-    res.status(404).send({ error: "Producto no encontrado" });
+    if (!prod) return res.status(404).json({ status: "error", payload: "Producto no encontrado" });
+    return res.status(200).json({ status: "success", payload: "Producto eliminado" });
   } catch (error) {
-    res.status(500).send({ error: `Error en eliminar productos ${error}` });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };

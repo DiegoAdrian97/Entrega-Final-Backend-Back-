@@ -1,13 +1,9 @@
 import { CartModel } from "../models/cart.models.js";
 import { ticketModel } from "../models/ticket.models.js";
+import { productModel } from "../models/products.models.js";
 import { userModel } from "../models/users.models.js";
 import { v4 as uuidv4 } from "uuid";
-import nodemailer from "nodemailer";
 import { sendTicketToEmail } from "../main.js";
-
-const generarCodeUnico = () => {
-  return uuidv4();
-};
 
 export const postCompra = async (req, res) => {
   const cartId = req.params.cid;
@@ -15,76 +11,55 @@ export const postCompra = async (req, res) => {
 
   try {
     const cart = await CartModel.findById(cartId).populate("products._id");
-
-    if (!cart) {
-      return res.status(404).send("Carrito no encontrado");
-    }
-
+    if (!cart) return res.status(404).json({ status: "error", payload: "Carrito no encontrado" });
     if (cart.products.length === 0) {
-      return res
-        .status(200)
-        .send("Carrito vacío, no se ha realizado ninguna compra");
+      return res.status(400).json({ status: "error", payload: "El carrito está vacío" });
     }
 
-    let insufficientStock = false;
-
+    // Verificar stock
     for (const item of cart.products) {
-      const product = item._id;
-      const quantity = item.quantity;
-
-      if (product.stock < quantity) {
-        insufficientStock = true;
-        // Filtrar productos con stock suficiente
-        cart.products = cart.products.filter(
-          (cartItem) => cartItem._id.toString() !== product._id.toString()
-        );
-        break;
+      if (item._id.stock < item.quantity) {
+        return res.status(400).json({
+          status: "error",
+          payload: `Stock insuficiente para "${item._id.title}"`,
+        });
       }
-
-      product.stock -= quantity;
-      await product.save();
     }
 
-    if (insufficientStock) {
-      // Salir temprano si hay falta de stock
-      return res
-        .status(401)
-        .send("No hay stock suficiente para finalizar la compra");
-    }
+    // Descontar stock con bulkWrite (1 sola operación)
+    const bulkOps = cart.products.map((item) => ({
+      updateOne: {
+        filter: { _id: item._id._id },
+        update: { $inc: { stock: -item.quantity } },
+      },
+    }));
+    await productModel.bulkWrite(bulkOps);
 
-    const total = cart.products.reduce(
-      (acc, item) => acc + item.quantity * item._id.price,
-      0
-    );
+    const total = cart.products.reduce((acc, item) => acc + item.quantity * item._id.price, 0);
 
-    cart.default = [{ products: cart.products, total }];
-    await cart.save();
-
-    const ticket = new ticketModel({
+    const ticket = await ticketModel.create({
       products: cart.products.map((item) => ({
-        id: item._id,
+        _id: item._id._id,
         title: item._id.title,
         quantity: item.quantity,
         price: item._id.price,
       })),
       amount: total,
       email: userEmail,
-      purchaser: cart._id,
-      code: generarCodeUnico(),
+      purchaser: req.user?._id,
+      cart: cart._id,
+      code: uuidv4(),
     });
-    await ticket.save();
+
     sendTicketToEmail(ticket);
 
-    // Limpiar el carrito después de la compra
+    // Limpiar el carrito
     cart.products = [];
     cart.total = 0;
     await cart.save();
 
-    return res.status(200).send("Ticket creado, gracias por su compra");
+    return res.status(200).json({ status: "success", payload: "Compra realizada", ticket });
   } catch (error) {
-    return res.status(500).send({
-      respuesta: "Error al procesar la compra",
-      mensaje: error || "Error desconocido al procesar la compra",
-    });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };

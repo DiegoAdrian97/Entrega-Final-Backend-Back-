@@ -1,33 +1,21 @@
-//Routers y DOTENV
 import router from "./Routes/index.routes.js";
 import "dotenv/config.js";
-//////////////////////
-//EXPREESS SOCKET y CORS
 import express from "express";
 import session from "express-session";
 import cors from "cors";
-//////////////////////
-//PATH
 import { __dirname } from "./path.js";
 import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUiExpress from "swagger-ui-express";
-//MONGO Y COOKIE PARSER
 import mongoose from "mongoose";
 import MongoStore from "connect-mongo";
 import cookieParser from "cookie-parser";
-//////////////////////
-//PASSPORT Y MODELS
 import passport from "passport";
 import initializePassport from "./config/passport.js";
-//////////////////////
-//MAILING y LOGGERS
 import nodemailer from "nodemailer";
 import { addlogger } from "./utils/logger.js";
 import { BACKEND_URL, FRONTEND_URL, MY_EMAIL, PORT } from "./config.js";
 
-//////////////////////
-
-// CORS OPTIONS
+// CORS
 const whiteList = [
   FRONTEND_URL,
   BACKEND_URL,
@@ -35,33 +23,32 @@ const whiteList = [
   "http://localhost:5173",
 ];
 const corsOptions = {
-  origin: function (origin, callback) {
-    if (whiteList.indexOf(origin) != -1 || !origin) {
+  origin: (origin, callback) => {
+    if (whiteList.indexOf(origin) !== -1 || !origin) {
       callback(null, true);
     } else {
-      callback(new Error("Acceso denegado"));
+      callback(new Error("Acceso denegado por CORS"));
     }
   },
   credentials: true,
 };
-// Middlewares
+
 const app = express();
+
+// Middlewares
 app.use(express.json());
 app.use(cors(corsOptions));
-app.use(cookieParser(process.env.SIGNED_COOKIE)); // La cookie esta firmada
+app.use(cookieParser(process.env.SIGNED_COOKIE));
 app.use(
   session({
     store: MongoStore.create({
       mongoUrl: process.env.MONGO_URL,
-      mongoOptions: {
-        useNewUrlParser: true, //Establezco que la conexion sea mediante URL
-        useUnifiedTopology: true, //Manego de clusters de manera dinamica
-      },
-      ttl: 60, //Duracion de la sesion en la BDD en segundos
+      ttl: 60 * 60 * 24, // 24 horas
     }),
     secret: process.env.SESSION_SECRET,
-    resave: false, //Fuerzo a que se intente guardar a pesar de no tener modificacion en los datos
-    saveUninitialized: false, //Fuerzo a guardar la session a pesar de no tener ningun dato
+    resave: false,
+    saveUninitialized: false,
+    cookie: { httpOnly: true },
   })
 );
 
@@ -69,9 +56,16 @@ initializePassport();
 app.use(passport.initialize());
 app.use(passport.session());
 
-//Routes
-app.use("/", router);
+// Servir imágenes estáticas
+app.use("/images", express.static(`${__dirname}/public/js`));
+
+// Logger debe ir ANTES de las rutas
 app.use(addlogger);
+
+// Routes
+app.use("/", router);
+
+// Swagger
 const swaggerOptions = {
   definition: {
     openapi: "3.1.0",
@@ -80,28 +74,13 @@ const swaggerOptions = {
       description: "Api Coder Backend",
     },
   },
-  apis: [`${__dirname}/docs/**/*.yaml`], //  ** indica una subcarpeta que no me interesa el nombre
+  apis: [`${__dirname}/docs/**/*.yaml`],
 };
 const specs = swaggerJSDoc(swaggerOptions);
-///////////////////////
-
 app.use("/apidocs", swaggerUiExpress.serve, swaggerUiExpress.setup(specs));
 
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "http://localhost:3000");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
-  next();
-});
-
-//Artillery
-app.get("/testArtillery", (req, res) => {
-  res.send("Hola desde artillery");
-});
-
-//MAILING
-
-let transporter = nodemailer.createTransport({
+// MAILING
+const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 465,
   secure: true,
@@ -111,112 +90,99 @@ let transporter = nodemailer.createTransport({
     authMethod: "LOGIN",
   },
 });
+
 export const sendRecoveryMail = (email, recoveryLink) => {
   const mailOptions = {
     from: MY_EMAIL,
     to: email,
     subject: "Link para restablecer su contraseña",
     html: `
-    <div>
-      <h1>
-      Haga click en este link para restablecer su contraseña: ${recoveryLink}
-      </h1>
+    <div style="font-family:sans-serif;max-width:500px;margin:auto;padding:24px;border:1px solid #eee;border-radius:8px;">
+      <h2 style="color:#333;">Restablecer contraseña</h2>
+      <p style="color:#555;">Haga click en el siguiente botón para restablecer su contraseña. El link expira en 1 hora.</p>
+      <a href="${recoveryLink}" style="display:inline-block;padding:12px 24px;background:#e53e3e;color:#fff;border-radius:6px;text-decoration:none;font-weight:bold;">
+        Restablecer contraseña
+      </a>
+      <p style="color:#999;font-size:12px;margin-top:16px;">Si no solicitaste esto, ignorá este email.</p>
     </div>`,
   };
-  transporter.sendMail(mailOptions, (error, info) => {
-    if (error) console.log(error);
-    else console.log("Email enviado correctamente");
+  transporter.sendMail(mailOptions, (error) => {
+    if (error) console.error("Error al enviar email de recuperación:", error);
+    else console.log("Email de recuperación enviado a:", email);
   });
 };
 
 export const sendTicketToEmail = (ticket) => {
-  console.log("Ticket a enviar: " + ticket);
   const email = ticket && ticket.email;
   if (!email) {
-    console.log(
-      "Error: No se proporcionó una dirección de correo electrónico válida."
-    );
+    console.error("sendTicketToEmail: sin dirección de email válida");
     return;
   }
 
-  const products = ticket.products;
-  const amount = ticket.amount;
-  const code = ticket.code;
+  const { products, amount, code } = ticket;
+
+  const productsHtml = products
+    .map(
+      (p) => `
+      <tr>
+        <td style="padding:8px;border-bottom:1px solid #eee;">${p.title}</td>
+        <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">${p.quantity}</td>
+        <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">$${p.price}</td>
+      </tr>`
+    )
+    .join("");
 
   const mailOptions = {
     from: MY_EMAIL,
     to: email,
-    subject: "Gracias por su compra!",
+    subject: "¡Gracias por su compra!",
     html: `
-    <div style="align-items: center;text-align: center;">
-      <h1 style="color: #333;font-weight: bold;">Confirmamos su compra!</h1>
-      <h1 style="color: #666;font-weight: bold;">Contactenos por whatsapp para coordinar su entrega</h1>
-    <a href="https://wa.me/5491159148462?text=Hola!%20Me%20comunico%20porque...">Whatsapp</a>
-      <h1 style="color: #777;font-weight: bold;">Estos son los productos que recibirás</h1>
-      ${products.map(
-        (product) => `
-        <h1 style="color: #444;">${product.title}</h1>
-        <h1 style="color: #888;font-weight: bold;">Precio Unitario: $ ${product.price}</h1>
-          <h1 style="color: #888;font-weight: bold;">Cantidad: ${product.quantity}</h1>
-          <hr style="border: 1px solid;">
-        `
-      )}
-      <h4 style="color: #555;">Total: $ ${amount}</h4>
-      <h4 style="color: #555;">Este es el código de tu compra: ${code}</h4>
+    <div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px;border:1px solid #eee;border-radius:8px;">
+      <h2 style="color:#333;text-align:center;">✅ Compra confirmada</h2>
+      <p style="color:#555;text-align:center;">Código de compra: <strong>${code}</strong></p>
+      <table style="width:100%;border-collapse:collapse;margin-top:16px;">
+        <thead>
+          <tr style="background:#f7f7f7;">
+            <th style="padding:8px;text-align:left;">Producto</th>
+            <th style="padding:8px;text-align:center;">Cantidad</th>
+            <th style="padding:8px;text-align:right;">Precio unit.</th>
+          </tr>
+        </thead>
+        <tbody>${productsHtml}</tbody>
+      </table>
+      <p style="text-align:right;font-size:18px;font-weight:bold;margin-top:12px;">Total: $${amount}</p>
+      <div style="text-align:center;margin-top:24px;">
+        <a href="https://wa.me/5491159148462?text=Hola!%20Me%20comunico%20por%20mi%20compra%20${code}"
+           style="display:inline-block;padding:12px 24px;background:#25D366;color:#fff;border-radius:6px;text-decoration:none;font-weight:bold;">
+          Coordinar entrega por WhatsApp
+        </a>
+      </div>
     </div>`,
   };
 
-  transporter.sendMail(mailOptions, (error, info) => {
-    if (error) console.log("Error al enviar el correo electrónico:", error);
-    else console.log("Email enviado correctamente");
+  transporter.sendMail(mailOptions, (error) => {
+    if (error) console.error("Error al enviar ticket por email:", error);
+    else console.log("Ticket enviado a:", email);
   });
 };
 
-//////////////////////
-//BDD
+// BDD
 mongoose
   .connect(process.env.MONGO_URL)
-  .then(async () => {
-    console.log("BDD conectada");
+  .then(() => console.log("BDD conectada"))
+  .catch((err) => {
+    console.error("Error al conectarse a la BDD:", err.message);
+    process.exit(1);
+  });
 
-    /*   const resCartProds = await CartModel.findOne({
-      _id: "6506041a8b0752b8b129f0bd",
-    });
-    console.log(JSON.stringify(resCartProds)); */
-
-    /* const resUsers = await userModel.paginate(
-      { limit: 20 },
-      { sort: { edad: "asc" } }
-    );
-    console.log(resUsers); */
-  })
-  .catch(() => console.log("Error al conectarse a la BDD"));
-
-////////////////////////////////////////////////
-
-app.get("/info", (req, res) => {
-  req.logger.info('<span style="color:green">Texto de Info</span><br/>');
-  req.res.send("Hola!");
-});
-app.get("/error", (req, res) => {
-  req.logger.error('<span style="color:magenta">Texto de error</span><br/>');
-  req.res.send("Hola!");
-});
-app.get("/debug", (req, res) => {
-  req.logger.debug('<span style="color:yellow">Texto de debug</span><br/>');
-  req.res.send("Hola!");
-});
-app.get("/fatal", (req, res) => {
-  req.logger.fatal('<span style="color:red">Texto de fatal</span><br/>');
-  req.res.send("Hola!");
+// Global error handler (debe ir al final)
+app.use((err, req, res, next) => {
+  const status = err.status || 500;
+  req.logger?.error(`${err.message} — ${req.method} ${req.url}`);
+  res.status(status).json({ status: "error", payload: err.message || "Error interno del servidor" });
 });
 
-app.get("/warning", (req, res) => {
-  req.logger.warning('<span style="color:blue">Texto de warning</span><br/>');
-  req.res.send("Hola!");
-});
-
-//Server
+// Server
 app.listen(PORT, () => {
   console.log(`Server on Port ${PORT}`);
 });

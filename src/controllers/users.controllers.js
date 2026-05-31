@@ -1,17 +1,15 @@
 import { sendRecoveryMail } from "../main.js";
 import { userModel } from "../models/users.models.js";
+import { createHash } from "../utils/bcrypt.js";
 import crypto from "crypto";
 import path from "path";
 
 export const getAll = async (req, res) => {
   try {
     const users = await userModel.find({}, "first_name last_name email role");
-
-    res.status(200).send({ payload: "success", mensaje: users });
+    return res.status(200).json({ status: "success", payload: users });
   } catch (error) {
-    res
-      .status(404)
-      .send({ payload: "Error al obtener usuarios", mensaje: error.message });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
 
@@ -19,210 +17,138 @@ export const getById = async (req, res) => {
   const { uid } = req.params;
   try {
     const user = await userModel.findById(uid);
-    if (user) {
-      res.status(200).send({ payload: "success", mensaje: user });
-    } else {
-      res.status(404).send({ payload: "Error", mensaje: "User not found" });
-    }
+    if (!user) return res.status(404).json({ status: "error", payload: "Usuario no encontrado" });
+    return res.status(200).json({ status: "success", payload: user });
   } catch (error) {
-    res
-      .status(404)
-      .send({ payload: "Error al consultar este usuario", mensaje: error });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
+
 export const putById = async (req, res) => {
   const { uid } = req.params;
-  const { first_name, last_name, /* age, */ email, password } = req.body;
+  const { first_name, last_name, email, password } = req.body;
 
   try {
-    const user = await userModel.findByIdAndUpdate(uid, {
-      first_name,
-      last_name /* 
-      age, */,
-      email,
-      password,
-    });
-    if (user) {
-      res.status(200).send({ payload: "success", mensaje: user });
-    } else {
-      res.status(404).send({
-        payload: "Error al actualizar usuario",
-        mensaje: "User not found",
-      });
+    const updateData = { first_name, last_name, email };
+    if (password) {
+      updateData.password = createHash(password);
     }
+    const user = await userModel.findByIdAndUpdate(uid, updateData, { new: true });
+    if (!user) return res.status(404).json({ status: "error", payload: "Usuario no encontrado" });
+    return res.status(200).json({ status: "success", payload: user });
   } catch (error) {
-    res.status(404).send({ payload: "Error", mensaje: error });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
 
-// Controlador para eliminar usuarios inactivos
-export const autoDeleteInactiveUsers = async (req, res) => {
-  try {
-    const twoDaysInMillis = 2 * 24 * 60 * 60 * 1000; // 2 días en milisegundos
-    const DateNow = Date.now();
-
-    // Encuentra y elimina usuarios que no se han conectado en los últimos 2 días
-    const inactiveUsers = await userModel.find();
-
-    for (const user of inactiveUsers) {
-      const lastConnectionTime = new Date(user.last_connection).getTime();
-
-      // Verifica si han pasado 2 días o más desde la última conexión
-      if (DateNow - lastConnectionTime >= twoDaysInMillis) {
-        // Envía correo de aviso
-        await transporter.sendMail({
-          to: user.email,
-          subject: "Aviso de eliminación por inactividad",
-          text: "Tu cuenta será eliminada debido a inactividad. Conéctate para evitar la eliminación.",
-        });
-
-        // Elimina el usuario
-        await userModel.findByIdAndDelete(user._id);
-
-        res
-          .status(201)
-          .send(`Usuario ${user.email} eliminado por inactividad.`);
-      }
-    }
-  } catch (error) {
-    res.status(404).send({ payload: "Error", mensaje: error });
-  }
-};
 export const deleteByid = async (req, res) => {
   const { uid } = req.params;
-
   try {
     const user = await userModel.findByIdAndDelete(uid);
-    if (user) {
-      res.status(200).send({ payload: "success", mensaje: user });
-    } else {
-      res.status(404).send({
-        payload: "Error al eliminar el usuario",
-        mensaje: "User not found",
-      });
-    }
+    if (!user) return res.status(404).json({ status: "error", payload: "Usuario no encontrado" });
+    return res.status(200).json({ status: "success", payload: "Usuario eliminado" });
   } catch (error) {
-    res.status(404).send({ payload: "Error", mensaje: error });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
+
 export const deleteInactiveUser = async (req, res) => {
   try {
     const twoDaysAgo = new Date();
     twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-    console.log("two days ago " + twoDaysAgo);
-    const usersToDelete = await userModel.find({
-      last_connection: { $lt: twoDaysAgo },
-    });
-    console.log("Usuario eliminado" + usersToDelete);
-    // Encuentra y elimina usuarios inactivos que no han iniciado sesión en los últimos 2 días
-    const resultado = await userModel.deleteMany({
-      last_connection: { $lt: twoDaysAgo },
-    });
+
+    const resultado = await userModel.deleteMany({ last_connection: { $lt: twoDaysAgo } });
 
     if (resultado.deletedCount > 0) {
-      res.status(200).send({
-        payload: "success",
-        mensaje: `Se eliminaron ${resultado.deletedCount} usuarios inactivos.`,
-      });
-    } else {
-      res.status(404).send({
-        payload: "Error",
-        mensaje: "No se encontraron usuarios inactivos para eliminar.",
+      return res.status(200).json({
+        status: "success",
+        payload: `Se eliminaron ${resultado.deletedCount} usuarios inactivos`,
       });
     }
+    return res.status(200).json({ status: "success", payload: "No hay usuarios inactivos" });
   } catch (error) {
-    console.error("Error al eliminar usuarios inactivos:", error);
-    res.status(500).send({
-      payload: "Error",
-      mensaje: "Error al procesar la solicitud",
-    });
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
-setInterval(deleteInactiveUser, 24 * 60 * 60 * 1000);
-// PW RECOVERY
 
-const recoveryLinks = {};
-export const pwRecovery = (req, res) => {
+// PW RECOVERY — tokens persistidos en BD (campo en el usuario sería lo ideal, pero
+// usamos un Map en memoria con timestamp para mantener la lógica existente correctamente)
+const recoveryLinks = new Map();
+
+export const pwRecovery = async (req, res) => {
   const { email } = req.body;
   try {
-    const token = crypto.randomBytes(20).toString("hex"); // Token unico para que no hayan 2 iguales para dif users
-    recoveryLinks[token] = {
-      email: email,
-      timestamp: Date.now(),
-    };
-    const recoveryLink = `http://localhost:8080/api/users/reset-password/${token}`;
+    const user = await userModel.findOne({ email });
+    if (!user) {
+      // No revelamos si el email existe (seguridad)
+      return res.status(200).json({ status: "success", payload: "Si el email existe, recibirás un link" });
+    }
+    const token = crypto.randomBytes(20).toString("hex");
+    recoveryLinks.set(token, { email, timestamp: Date.now() });
+
+    const recoveryLink = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password/${token}`;
     sendRecoveryMail(email, recoveryLink);
-    res.status(200).send("Email de recuperación enviado");
+    return res.status(200).json({ status: "success", payload: "Email de recuperación enviado" });
   } catch (error) {
-    res.status(500).send(`Error al enviar el mail ${error}`);
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
 
-export const pwReset = (req, res) => {
+export const pwReset = async (req, res) => {
   const { token } = req.params;
   const { newPassword, newPassword2 } = req.body;
   try {
-    const linkData = recoveryLinks[token];
-    if (linkData && Date.now() - linkData.timestamp <= 3600000) {
-      if (newPassword == newPassword2) {
-        delete recoveryLinks[token];
-        res.status(200).send("Contraseña modificada correctamente");
-      } else {
-        res.status(400).send("Las contraseñas deben ser idénticas");
-      }
-      //Modificar usuario con nueva contraseña
-    } else {
-      res.status(400).send("link inválido o expirado, pruebe nuevamente");
+    const linkData = recoveryLinks.get(token);
+    if (!linkData || Date.now() - linkData.timestamp > 3600000) {
+      return res.status(400).json({ status: "error", payload: "Link inválido o expirado" });
     }
+    if (newPassword !== newPassword2) {
+      return res.status(400).json({ status: "error", payload: "Las contraseñas no coinciden" });
+    }
+
+    await userModel.findOneAndUpdate(
+      { email: linkData.email },
+      { password: createHash(newPassword) }
+    );
+    recoveryLinks.delete(token);
+    return res.status(200).json({ status: "success", payload: "Contraseña actualizada correctamente" });
   } catch (error) {
-    res.status(500).send(`Error al modificar contraseña ${error}`);
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
 
 export const documentsUpload = (req, res) => {
   try {
-    console.log(req.file);
-    res.status(200).send("Imagen cargada");
+    if (!req.file) return res.status(400).json({ status: "error", payload: "No se recibió ningún archivo" });
+    return res.status(200).json({ status: "success", payload: "Documento cargado", file: req.file.filename });
   } catch (error) {
-    console.error(error);
-    res.status(500).send("Error al procesar la solicitud");
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
+
 export const profilePicsUpload = async (req, res) => {
   const { uid } = req.params;
+  if (!req.file) return res.status(400).json({ status: "error", payload: "No se recibió ningún archivo" });
   const { filename } = req.file;
   try {
+    const filePath = path.join("src", "public", "js", "profilePics", filename).replace(/\\/g, "/");
     const user = await userModel.findByIdAndUpdate(
       uid,
-      {
-        $push: {
-          thumbnail: path
-            .join("src", "public", "js", "profilePics", filename)
-            .replace(/\\/g, "/")
-            .slice(0, -1),
-        },
-      },
+      { $push: { thumbnail: filePath } },
       { new: true }
     );
-    if (user) {
-      res.status(200).send("Imagen de perfil cargada");
-    } else {
-      res.status(404).send({
-        payload: "Error al actualizar usuario",
-        mensaje: "User not found",
-      });
-    }
+    if (!user) return res.status(404).json({ status: "error", payload: "Usuario no encontrado" });
+    return res.status(200).json({ status: "success", payload: "Imagen de perfil cargada" });
   } catch (error) {
-    console.error(error);
-    res.status(500).send("Error al procesar la solicitud");
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
+
 export const prodPicsUpload = (req, res) => {
   try {
-    console.log(req.file);
-    res.status(200).send("Imagen del producto cargada");
+    if (!req.file) return res.status(400).json({ status: "error", payload: "No se recibió ningún archivo" });
+    return res.status(200).json({ status: "success", payload: "Imagen de producto cargada", file: req.file.filename });
   } catch (error) {
-    console.error(error);
-    res.status(500).send("Error al procesar la solicitud");
+    return res.status(500).json({ status: "error", payload: error.message });
   }
 };
